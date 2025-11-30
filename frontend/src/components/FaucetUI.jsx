@@ -30,7 +30,7 @@ export default function FaucetUI({ account }) {
           return;
         }
 
-        const provider = new ethers.BrowserProvider(window.ethereum);
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
         const signer = await provider.getSigner();
 
         const contract = new ethers.Contract(
@@ -43,11 +43,11 @@ export default function FaucetUI({ account }) {
 
         // Read faucet balance
         const bal = await provider.getBalance(CONTRACT_ADDRESS);
-        setBalance(ethers.formatEther(bal));
+        setBalance(ethers.utils.formatEther(bal));
 
         // Read faucet AMOUNT dynamically
         const rawAmount = await contract.AMOUNT(); // <<----
-        setAmount(ethers.formatEther(rawAmount)); // "0.001"
+        setAmount(ethers.utils.formatEther(rawAmount)); // "0.001"
 
         // Read user cooldown data
         const lastTime = Number(await contract.getLastClaimTime(account));
@@ -80,12 +80,12 @@ export default function FaucetUI({ account }) {
   useEffect(() => {
     if (!contract || !window.ethereum) return;
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
 
     const interval = setInterval(async () => {
       try {
         const bal = await provider.getBalance(CONTRACT_ADDRESS);
-        setBalance(ethers.formatEther(bal));
+        setBalance(ethers.utils.formatEther(bal));
       } catch (err) {
         console.error("Balance polling error:", err);
       }
@@ -101,7 +101,7 @@ export default function FaucetUI({ account }) {
     const interval = setInterval(async () => {
       try {
         const rawAmount = await contract.AMOUNT();
-        setAmount(ethers.formatEther(rawAmount));
+        setAmount(ethers.utils.formatEther(rawAmount));
       } catch {}
     }, 5000);
 
@@ -122,9 +122,9 @@ export default function FaucetUI({ account }) {
       setStatus("✅ Claim successful!");
 
       // Refresh balance
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
       const newBal = await provider.getBalance(CONTRACT_ADDRESS);
-      setBalance(ethers.formatEther(newBal));
+      setBalance(ethers.utils.formatEther(newBal));
 
       // Refresh cooldown
       const time = Number(await contract.getLastClaimTime(account));

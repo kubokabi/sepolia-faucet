@@ -1,127 +1,165 @@
 // src/components/ConnectWallet.jsx
-import { useState, useEffect } from 'react';
-import { FaWallet, FaEthereum } from 'react-icons/fa';
+import { useState, useEffect } from "react";
+import { FaWallet, FaEthereum, FaQrcode, FaSpinner } from "react-icons/fa";
+import { EthereumProvider } from "@walletconnect/ethereum-provider";
+
+const formatAddress = (addr) =>
+  addr ? `${addr.substring(0, 6)}…${addr.substring(addr.length - 4)}` : "";
 
 export default function ConnectWallet({ onAccountChange }) {
   const [account, setAccount] = useState(null);
-  const [status, setStatus] = useState('idle'); // 'idle' | 'connecting' | 'connected' | 'error'
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState({
+    metaMask: false,
+    walletConnect: false,
+  });
 
-  const formatAddress = (addr) => {
-    if (!addr) return '';
-    return `${addr.substring(0, 6)}…${addr.substring(addr.length - 4)}`;
-  };
+  // 🔌 MetaMask (hanya jalan di Chrome/Brave dengan ekstensi)
+  const connectMetaMask = async () => {
+    setLoading((prev) => ({ ...prev, metaMask: true }));
+    setError("");
 
-  const connect = async () => {
-    if (typeof window.ethereum === 'undefined') {
-      setError('MetaMask not detected. Please install it.');
-      setStatus('error');
+    if (!window?.ethereum) {
+      setError(
+        "MetaMask not found. Try WalletConnect (works on Safari & iOS)."
+      );
+      setLoading((prev) => ({ ...prev, metaMask: false }));
       return;
     }
 
     try {
-      setStatus('connecting');
-      setError('');
-
-      // Request account access
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
       const acc = accounts[0];
-
-      // Optional: switch to Sepolia
-      try {
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0xaa36a7' }], // Sepolia chain ID
-        });
-      } catch (switchError) {
-        // If chain not added, add it
-        if (switchError.code === 4902) {
-          try {
-            await window.ethereum.request({
-              method: 'wallet_addEthereumChain',
-              params: [{
-                chainId: '0xaa36a7',
-                chainName: 'Sepolia Testnet',
-                nativeCurrency: { name: 'SepoliaETH', symbol: 'ETH', decimals: 18 },
-                rpcUrls: ['https://eth-sepolia.g.alchemy.com/v2/iUtQarduBUwJhQ93t_FEH'],
-                blockExplorerUrls: ['https://sepolia.etherscan.io'],
-              }],
-            });
-          } catch (addError) {
-            console.warn('Failed to add Sepolia:', addError);
-          }
-        }
-      }
-
       setAccount(acc);
-      setStatus('connected');
-      if (onAccountChange) onAccountChange(acc);
+      onAccountChange?.(acc);
     } catch (err) {
-      console.error('Connection error:', err);
-      setError(err.message || 'User rejected request.');
-      setStatus('error');
+      setError("Connection rejected.");
     } finally {
-      setTimeout(() => setStatus('idle'), 2000);
+      setLoading((prev) => ({ ...prev, metaMask: false }));
     }
   };
 
-  useEffect(() => {
-    // Listen for account change (e.g., switch in MetaMask)
-    const handleAccountsChanged = (accounts) => {
-      if (accounts.length === 0) {
-        setAccount(null);
-        if (onAccountChange) onAccountChange(null);
-      } else if (accounts[0] !== account) {
-        setAccount(accounts[0]);
-        if (onAccountChange) onAccountChange(accounts[0]);
-      }
-    };
+  // 📱 WalletConnect (works everywhere: Safari, iOS, Android, desktop)
+  const connectWalletConnect = async () => {
+    setLoading((prev) => ({ ...prev, walletConnect: true }));
+    setError("");
 
-    if (window.ethereum) {
-      window.ethereum.on('accountsChanged', handleAccountsChanged);
+    try {
+      const provider = await EthereumProvider.init({
+        projectId: "2f19360761d84238a6b1375529db7d54",
+        chains: [11155111], // Sepolia
+        showQrModal: true,
+        rpcMap: {
+          11155111:
+            "https://eth-sepolia.g.alchemy.com/v2/iUtQarduBUwJhQ93t_FEH", // ← hapus spasi trailing!
+        },
+        metadata: {
+          name: "Sepolia Faucet",
+          description: "Request Sepolia ETH",
+          url: "http://localhost:3000",
+          icons: ["https://i.imgur.com/7kO7U4y.png"],
+        },
+      });
+
+      await provider.connect();
+      const accounts = await provider.request({ method: "eth_accounts" });
+      const acc = accounts[0];
+      setAccount(acc);
+      onAccountChange?.(acc);
+
+      provider.on("accountsChanged", (accounts) => {
+        const newAcc = accounts[0];
+        setAccount(newAcc);
+        onAccountChange?.(newAcc);
+      });
+    } catch (err) {
+      if (!err.message?.includes("User closed modal")) {
+        setError("WalletConnect failed. Try again.");
+      }
+    } finally {
+      setLoading((prev) => ({ ...prev, walletConnect: false }));
     }
+  };
 
-    return () => {
-      if (window.ethereum) {
-        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+  // Auto-detect existing accounts (e.g., after refresh)
+  useEffect(() => {
+    const checkAccounts = async () => {
+      if (window?.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({
+            method: "eth_accounts",
+          });
+          if (accounts.length > 0) {
+            setAccount(accounts[0]);
+            onAccountChange?.(accounts[0]);
+          }
+        } catch (e) {
+          console.warn("Failed to auto-detect accounts:", e);
+        }
       }
     };
-  }, [account, onAccountChange]);
+    checkAccounts();
+  }, [onAccountChange]);
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex flex-col items-center gap-4">
       {!account ? (
-        <button
-          onClick={connect}
-          disabled={status === 'connecting'}
-          className="group relative px-5 py-3 rounded-xl font-medium flex items-center gap-2
-            bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white
-            shadow-lg hover:shadow-xl
-            focus:outline-none focus:ring-4 focus:ring-purple-300/50
-            transition-all duration-300
-            disabled:opacity-70 disabled:cursor-not-allowed"
-        >
-          <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-400/20 to-blue-500/20 opacity-0 group-hover:opacity-100 transition-opacity"></span>
-          <FaWallet />
-          {status === 'connecting' ? 'Connecting…' : 'Connect Wallet'}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={connectMetaMask}
+            disabled={loading.metaMask}
+            className="px-5 py-3 rounded-xl font-medium flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:opacity-95 disabled:opacity-70 transition"
+          >
+            {loading.metaMask ? (
+              <>
+                <FaSpinner className="animate-spin" /> Connecting…
+              </>
+            ) : (
+              <>
+                <FaWallet /> MetaMask
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={connectWalletConnect}
+            disabled={loading.walletConnect}
+            className="px-5 py-3 rounded-xl font-medium flex items-center gap-2 bg-gray-800 text-white hover:opacity-90 disabled:opacity-70 transition"
+          >
+            {loading.walletConnect ? (
+              <>
+                <FaSpinner className="animate-spin" /> Loading…
+              </>
+            ) : (
+              <>
+                <FaQrcode /> WalletConnect
+              </>
+            )}
+          </button>
+        </div>
       ) : (
-        <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-xl border border-gray-200">
+        <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-xl border">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-          <span className="font-mono text-sm font-medium text-gray-800">{formatAddress(account)}</span>
+          <span className="font-mono text-sm font-medium">
+            {formatAddress(account)}
+          </span>
         </div>
       )}
 
       {error && (
-        <div className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg flex items-center gap-1 animate-fade-in">
-          <FaEthereum className="text-red-500" /> {error}
+        <div className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-lg flex items-center gap-1">
+          <FaEthereum /> {error}
         </div>
       )}
 
-      {status === 'connected' && !error && (
-        <div className="text-green-600 text-sm animate-fade-in">
-          ✅ Wallet connected
-        </div>
+      {/* Info tip for Safari users */}
+      {!account && typeof window !== "undefined" && !window.ethereum && (
+        <p className="text-gray-500 text-sm text-center max-w-md">
+          💡 Using Safari or iOS? MetaMask Mobile works via{" "}
+          <strong>WalletConnect</strong> — scan QR with your MetaMask app.
+        </p>
       )}
     </div>
   );
